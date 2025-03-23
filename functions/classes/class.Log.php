@@ -945,6 +945,7 @@ class Logging extends Common_functions {
 			// nameserver index
 			elseif($k == "nameserverId") 	{ $this->object_old[$k] = $this->changelog_format_ns_diff ($k, $v); }
                         // timeserver index
+			elseif($k == "timeserverId") 	{ $this->object_old[$k] = $this->changelog_format_ts_diff ($k, $v); }
 		}
 	}
 
@@ -1007,7 +1008,9 @@ class Logging extends Common_functions {
 				elseif($k == "permissions") 	{ $v = $this->changelog_format_permission_diff ($k, $v); }
 				// nameserver index
 				elseif($k == "nameserverId") 	{ $v = $this->changelog_format_ns_diff ($k, $v); }
-				// make booleans
+				// timeserver index
+			        elseif($k == "timeserverId") 	{ $v = $this->changelog_format_ts_diff ($k, $v); }
+                                // make booleans
 				$v = $this->changelog_make_booleans ($k, $v);
 				//set log
 				if ($k!=="id")
@@ -1358,7 +1361,7 @@ class Logging extends Common_functions {
 		elseif($this->object_old[$k] != "NULL") {
 			$ts = $this->Tools->fetch_object("timeservers", "id", $this->object_old[$k]);
 			if (is_object($ts))
-				$this->object_old[$k] = $ns->name." [".$ts->timesrv1."]";
+				$this->object_old[$k] = $ts->name." [".$ts->timesrv1."]";
 		}
 		// new none
 		if($v == 0)	{
@@ -1367,7 +1370,7 @@ class Logging extends Common_functions {
 		elseif($v != "NULL") {
 			$ts = $this->Tools->fetch_object("timeservers", "id", $v);
 			if (is_object($ts))
-				$v = $ts->name." [".$ns->timesrv1."]";
+				$v = $ts->name." [".$ts->timesrv1."]";
 		}
 		//result
 		return $v;
