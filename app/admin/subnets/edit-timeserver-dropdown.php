@@ -57,11 +57,11 @@ if($permitted_timeservers != false) {
 				foreach($t as $ts) {
 					// set print
 					$printTS = "$ts->name";
-					$printTS .= " (" . array_shift(pf_explode(";",$ns->timesrv1)).",...)";
+					$printTS .= " (" . array_shift(pf_explode(";",$ts->timesrv1)).",...)";
 
 					/* selected? */
-					if(@$subnet_old_details['timeserverId']==$ns->id) 	{ print '<option value="'. $ts->id .'" selected>'. $printTS .'</option>'. "\n"; }
-					elseif($POST->timeserverId == $ns->id) 			{ print '<option value="'. $ts->id .'" selected>'. $printTS .'</option>'. "\n"; }
+					if(@$subnet_old_details['timeserverId']==$ts->id) 	{ print '<option value="'. $ts->id .'" selected>'. $printTS .'</option>'. "\n"; }
+					elseif($POST->timeserverId == $ts->id) 			{ print '<option value="'. $ts->id .'" selected>'. $printTS .'</option>'. "\n"; }
 					else 							{ print '<option value="'. $ts->id .'">'. $printTS .'</option>'. "\n"; }
 				}
 			}
