@@ -1,5 +1,19 @@
 <?php
 
+use Tracy\Debugger;
+
+
+require_once 'vendor/autoload.php'; 
+
+Debugger::enable(Debugger::Development,dirname(__FILE__) . '/log');
+
+Tracy\Debugger::getBar()->addPanel(new Nette\Bridges\HttpTracy\SessionPanel);
+
+$factory = new Nette\Http\RequestFactory;
+$httpRequest = $factory->fromGlobals();
+
+Debugger::barDump($httpRequest,"Request");
+
 /* global and missing functions */
 require_once('global_functions.php');
 
@@ -36,7 +50,7 @@ if(php_sapi_name()!="cli")
 	ini_set('session.cookie_httponly', 1);
 
 /* @debugging functions ------------------- */
-if(Config::ValueOf('debugging')==true) {
+/*if(Config::ValueOf('debugging')==true) {
 	ini_set('display_errors', 1);
 	ini_set('display_startup_errors', 1);
 	error_reporting(E_ALL & ~E_NOTICE & ~E_STRICT & ~E_DEPRECATED);
@@ -44,7 +58,7 @@ if(Config::ValueOf('debugging')==true) {
 else {
 	disable_php_errors();
 	error_reporting(E_ERROR | E_WARNING);
-}
+}*/
 
 // auto-set base if not already defined
 if(!defined('BASE')) {

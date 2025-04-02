@@ -1,5 +1,8 @@
 <?php
 
+use Nette\Database,
+    Nette\Bridges\DatabaseTracy;
+
 /**
  * Abstract DB clas.
  *
@@ -55,6 +58,16 @@ abstract class DB {
 	 */
 	protected $pdo = null;
 
+	/**
+	 * netteDatabase
+	 *
+	 * (default value: null)
+	 *
+	 * @var Nette\Database
+	 * @access protected
+	 */
+	protected $netteDatabase = null;        
+        
 	/**
 	 * SSL attributes
 	 *
@@ -237,20 +250,26 @@ abstract class DB {
 		try {
 			# ssl?
 			if ($this->ssl) {
-				$this->pdo = new \PDO($dsn, $this->username, $this->password, $this->ssl);
+                            $this->netteDatabase = new Nette\Database\Connection($dsn, $this->username, $this->password, $this->ssl);
+                            $this->pdo = $this->netteDatabase->getPdo();
+                                
 			}
 			else {
-				$this->pdo = new \PDO($dsn, $this->username, $this->password);
+                            $this->netteDatabase = new Nette\Database\Connection($dsn, $this->username, $this->password);
+                            $this->pdo = $this->netteDatabase->getPdo();
 			}
 
+                        DatabaseTracy\ConnectionPanel::initialize($this->netteDatabase, true, 'Database', true, Tracy\Debugger::getBar(), Tracy\Debugger::getBlueScreen());
+                        
 			$this->setErrMode(\PDO::ERRMODE_EXCEPTION);
 
 		} catch (\PDOException $e) {
 			throw new Exception ("Could not connect to database! ".$e->getMessage());
 		}
 
+                              
 		try {
-			$this->pdo->query('SET NAMES \'' . $this->charset . '\';');
+			$this->netteDatabase->query('SET NAMES \'' . $this->charset . '\';');
 			$this->set_names = true;
 		} catch (Exception $e) {
 			$this->set_names = false;
@@ -261,7 +280,7 @@ abstract class DB {
 	 * Set PDO error mode
 	 * @param mixed $mode
 	 */
-	public function setErrMode($mode = \PDO::ERRMODE_EXCEPTION) {
+	public function setErrMode($mode = \PDO::ERRMODE_EXCEPTION) {            
 		$this->pdo->setAttribute(\PDO::ATTR_ERRMODE, $mode);
 	}
 
@@ -292,7 +311,8 @@ abstract class DB {
 	 * @return void
 	 */
 	public function resetConn() {
-		unset($this->pdo);
+                $this->netteDatabase->disconnect();
+                unset($this->pdo);
 		$this->cache = [];
 		$this->install = false;
 	}
@@ -357,7 +377,7 @@ abstract class DB {
 	 * @return bool
 	 */
 	public function isConnected() {
-		return (@$this->pdo !== null);
+		return (@$this->netteDatabase !== null);
 	}
 
 	/**
@@ -397,7 +417,8 @@ abstract class DB {
 	 * @return string|false
 	 */
 	public function lastInsertId() {
-		return $this->pdo->lastInsertId();
+		return $this->netteDatabase->getInsertId();
+                //pdo->lastInsertId();
 	}
 
 	/**
@@ -413,18 +434,14 @@ abstract class DB {
 	public function runQuery($query, $values = array(), &$rowCount = null) {
 		if (!$this->isConnected()) $this->connect();
 
-		$result = null;
-
-		$statement = $this->pdo->prepare($query);
-
-		//debug
-		$this->log_query($statement, $values);
-
-		if (is_object($statement)) {
-			$result = $statement->execute((array)$values); //this array cast allows single values to be used as the parameter
-			$rowCount = $statement->rowCount();
+                
+                $result = $this->netteDatabase->query($query, $values);
+                
+                if ($result && ($rows = $result->fetchAll())) {
+                    $rowCount = $result->getRowCount();
+                    return $rows;
 		}
-		return $result;
+		return null;
 	}
 
 	/**
@@ -520,14 +537,11 @@ abstract class DB {
 	public function numObjects($tableName) {
 		if (!$this->isConnected()) $this->connect();
 
-		$tableName = $this->escape($tableName);
-		$statement = $this->pdo->prepare('SELECT COUNT(*) as `num` FROM `'.$tableName.'`;');
-
-		//debug
-		$this->log_query ($statement);
-		$statement->execute();
-
-		return $statement->fetchColumn();
+		$tableName = $this->escape($tableName);             
+                
+                $result = $this->netteDatabase->query('SELECT COUNT(*) as `num` FROM `'.$tableName.'`;');
+  
+		return $result->fetch()->num;                                             
     }
 
 	/**
@@ -546,13 +560,11 @@ abstract class DB {
 		$like === true ? $operator = "LIKE" : $operator = "=";
 
 		$tableName = $this->escape($tableName);
-		$statement = $this->pdo->prepare('SELECT COUNT(*) as `num` FROM `'.$tableName.'` where `'.$method.'` '.$operator.' ?;');
 
-		//debug
-		$this->log_query ($statement, (array) $value);
-		$statement->execute(array($value));
+                $result = $this->netteDatabase->query('SELECT COUNT(*) as `num` FROM `'.$tableName.'` where `'.$method.'` '.$operator.' ?;', (array) $value);
 
-		return $statement->fetchColumn();
+  
+		return $result->fetch()->num;
 	}
 
 	/**
@@ -580,12 +592,12 @@ abstract class DB {
 		$tableName = $this->escape($tableName);
 
 		//get the objects id from the provided object and knock it off from the object so we don't try to update it
-		$objId[] = $obj[$primarykey];
+		$objId[$primarykey] = $obj[$primarykey];
 		unset($obj[$primarykey]);
 
 		//secondary primary key?
 		if(!is_null($primarykey2)) {
-		$objId[] = $obj[$primarykey2];
+		$objId[$primarykey2] = $obj[$primarykey2];
 		unset($obj[$primarykey2]);
 		}
 
@@ -596,30 +608,24 @@ abstract class DB {
 
 		$preparedParamArr = array();
 		foreach ($objParams as $objParam) {
-			$preparedParamArr[] = '`' . $this->escape($objParam) . '`=?';
+			$preparedParamArr[] = '`' . $this->escape($objParam) . '` = ? ';
 		}
 
 		// exit on no parameters
 		if(sizeof($preparedParamArr)==0) {
 			throw new Exception('No values to update');
 			return false;
-		}
-
-		$preparedParamStr = implode(',', $preparedParamArr);
-
+		}            
+               
 		//primary key 2?
-		if(!is_null($primarykey2))
-		$statement = $this->pdo->prepare('UPDATE `' . $tableName . '` SET ' . $preparedParamStr . ' WHERE `' . $primarykey . '`=? AND `' . $primarykey2 . '`=?;');
-		else
-		$statement = $this->pdo->prepare('UPDATE `' . $tableName . '` SET ' . $preparedParamStr . ' WHERE `' . $primarykey . '`=?;');
+		if(!is_null($primarykey2)){
+                        $result = $this->netteDatabase->query('UPDATE `' . $tableName . '` SET ? WHERE `' . $primarykey . '`= ? AND `' . $primarykey2 . '`= ?;', $obj,$objId[$primarykey],$objId[$primarykey2]);                               
+                }else{
 
-		//merge the parameters and values
-		$paramValues = array_merge(array_values($obj), $objId);
+                $result = $this->netteDatabase->query('UPDATE `' . $tableName . '` SET ? WHERE `' . $primarykey . '`= ?;', $obj, $objId[$primarykey]);
+                }
 
-		//debug
-		$this->log_query ($statement, $paramValues);
-		//run the update on the object
-		return $statement->execute($paramValues);
+		return $result->getRowCount();
 	}
 
 	/**
@@ -675,32 +681,13 @@ abstract class DB {
 			return true;
 		}
 
-		//formulate an update statement based on the object parameters
-		$objValues = array_values($obj);
-
-		$preparedParamsArr = array();
-		foreach ($obj as $key => $value) {
-			$preparedParamsArr[] = '`' . $this->escape($key) . '`';
-		}
-
-		$preparedParamsStr = implode(', ', $preparedParamsArr);
-		$preparedValuesStr = implode(', ', array_fill(0, count($objValues), '?'));
-
-		if ($replace) {
-			$statement = $this->pdo->prepare('REPLACE INTO `' . $tableName . '` (' . $preparedParamsStr . ') VALUES (' . $preparedValuesStr . ');');
-		} else {
-			$statement = $this->pdo->prepare('INSERT INTO `' . $tableName . '` (' . $preparedParamsStr . ') VALUES (' . $preparedValuesStr . ');');
-		}
-
-		//run the update on the object
-		if (!$statement->execute($objValues)) {
-			$errObj = $statement->errorInfo();
-
-			//return false;
-			throw new Exception($errObj[2]);
-		}
-
-		return $this->pdo->lastInsertId();
+                if ($replace) {
+                        $result = $this->netteDatabase->query('REPLACE INTO `' . $tableName . '` ',$obj);                
+                        
+                } else {
+                        $result = $this->netteDatabase->query('INSERT INTO `' . $tableName . '` ',$obj);        
+                }
+                return $this->netteDatabase->getInsertId();
 	}
 
 
@@ -776,7 +763,7 @@ abstract class DB {
 	 * @param string $class (default: 'stdClass')
 	 * @return array
 	 */
-	public function getObjects($tableName, $sortField = 'id', $sortAsc = true, $numRecords = null, $offset = 0, $class = 'stdClass') {
+	public function getObjects($tableName, $sortField = 'id', $sortAsc = true, $numRecords = null, $offset = 0) {
 		if (!$this->isConnected()) $this->connect();
 
 		$sortStr = '';
@@ -794,19 +781,16 @@ abstract class DB {
 
 		if ($numRecords === null) {
 			//get all (no limit)
-			$statement = $this->pdo->query('SELECT * FROM `'.$tableName.'` ORDER BY `'.$sortField.'` '.$sortStr.';');
-		} else {
+		        $result = $this->netteDatabase->query('SELECT * FROM `'.$tableName.'` ORDER BY `'.$sortField.'` '.$sortStr.';');
+                        
+                } else {
 			//get a limited range of objects
-			$statement = $this->pdo->query('SELECT * FROM `'.$tableName.'` ORDER BY `'.$sortField.'` '.$sortStr.' LIMIT '.$numRecords.' OFFSET '.$offset.';');
-		}
+		        $result = $this->netteDatabase->query('SELECT * FROM `'.$tableName.'` ORDER BY `'.$sortField.'` '.$sortStr.' LIMIT '.$numRecords.' OFFSET '.$offset.';');                      
+                }
 
-		$results = array();
-
-		if (is_object($statement)) {
-			$results = $statement->fetchAll($class == 'stdClass' ? PDO::FETCH_CLASS : PDO::FETCH_NUM);
-		}
-
-		return $this->html_escape_strings($tableName, $results);
+                $rows = $result->fetchAll();
+                               
+		return $this->html_escape_strings($tableName, $rows);
 	}
 
 	/**
@@ -819,22 +803,14 @@ abstract class DB {
 	 * @param string $class (default: 'stdClass')
 	 * @return array
 	 */
-	public function getObjectsQuery($tableName, $query = null, $values = array(), $class = 'stdClass') {
+	public function getObjectsQuery($tableName, $query = null, $values = array()) {
 		if (!$this->isConnected()) $this->connect();
 
-		$statement = $this->pdo->prepare($query);
-
-		//debug
-		$this->log_query ($statement, $values);
-		$statement->execute((array)$values);
-
-		$results = array();
-
-		if (is_object($statement)) {
-			$results = $statement->fetchAll($class == 'stdClass' ? PDO::FETCH_CLASS : PDO::FETCH_NUM);
-		}
-
-		return $this->html_escape_strings($tableName, $results);
+                $result = $this->netteDatabase->query($query,(is_array($values))?(array) $values:array());
+                
+                $rows = $result->fetchAll();
+                
+		return $this->html_escape_strings($tableName, $rows);
 	}
 
 	/**
@@ -847,19 +823,11 @@ abstract class DB {
 	public function getGroupBy($tableName, $groupField = 'id') {
 		if (!$this->isConnected()) $this->connect();
 
-		$statement = $this->pdo->prepare("SELECT `$groupField`,COUNT(*) FROM `$tableName` GROUP BY `$groupField`");
-
-		//debug
-		$this->log_query ($statement, array());
-		$statement->execute();
-
-		$results = array();
-
-		if (is_object($statement)) {
-			$results = $statement->fetchAll(PDO::FETCH_KEY_PAIR);
-		}
-
-		return $this->html_escape_strings($tableName, $results);
+	                $result = $this->netteDatabase->query("SELECT `$groupField`,COUNT(*) FROM `$tableName` GROUP BY `$groupField`");
+                
+                $rows = $result->fetchPairs();
+                
+		return $this->html_escape_strings($tableName, $rows);
 	}
 
 	/**
@@ -871,32 +839,24 @@ abstract class DB {
 	 * @param string $class (default: 'stdClass')
 	 * @return object|null
 	 */
-	public function getObject($tableName, $id = null, $class = 'stdClass') {
+	public function getObject($tableName, $id = null) {
 		if (!$this->isConnected()) $this->connect();
 		$id = intval($id);
 
 		//has a custom query been provided?
 		$tableName = $this->escape($tableName);
-
+              
 		//prepare a statement to get a single object from the database
 		if ($id !== null) {
-			$statement = $this->pdo->prepare('SELECT * FROM `'.$tableName.'` WHERE `id`=? LIMIT 1;');
-			$statement->bindParam(1, $id, \PDO::PARAM_INT);
+                        $result = $this->netteDatabase->query('SELECT * FROM `'.$tableName.'` WHERE `id` = ? LIMIT 1;',[$id]); 
 		} else {
-			$statement = $this->pdo->prepare('SELECT * FROM `'.$tableName.'` LIMIT 1;');
-		}
-
-		//debug
-		$this->log_query ($statement, array($id));
-		$statement->execute();
-
-		//we can then extract the single object (if we have a result)
-		$resultObj = $statement->fetchObject($class);
-
-		if ($resultObj === false) {
+                    	$result = $this->netteDatabase->query('SELECT * FROM `'.$tableName.'` LIMIT 1;');   
+		}            
+                                
+                if (($row = $result->fetch()) === null) {
 			return null;
 		} else {
-			return $this->html_escape_strings($tableName, $resultObj);
+			return $this->html_escape_strings($tableName, $row);
 		}
 	}
 
@@ -910,20 +870,16 @@ abstract class DB {
 	 * @param string $class (default: 'stdClass')
 	 * @return object|null
 	 */
-	public function getObjectQuery($tableName, $query = null, $values = array(), $class = 'stdClass') {
-		if (!$this->isConnected()) $this->connect();
-
-		$statement = $this->pdo->prepare($query);
-		//debug
-		$this->log_query ($statement, $values);
-		$statement->execute((array)$values);
-
-		$resultObj = $statement->fetchObject($class);
-
-		if ($resultObj === false) {
+	public function getObjectQuery($tableName, $query = null, $values = array()) {
+                if (!$this->isConnected()){ 
+                    $this->connect();                    
+                }
+                
+                $result = $this->netteDatabase->query($query,$values);                                                                    
+                if (($row = $result->fetch()) === null) {
 			return null;
 		} else {
-			return $this->html_escape_strings($tableName, $resultObj);
+			return $this->html_escape_strings($tableName, $row);
 		}
 	}
 
@@ -992,7 +948,7 @@ abstract class DB {
 		$table = $this->escape($table);
 		$field = $this->escape($field);
 
-		return $this->getObjectQuery($table, 'SELECT * FROM `' . $table . '` WHERE `' . $field . '` = ? LIMIT 1;', array($value));
+		return $this->getObjectQuery($table, 'SELECT * FROM `' . $table . '` WHERE `' . $field . '` = ? LIMIT 1;', [$value]);
 	}
 
 	/**
@@ -1083,31 +1039,25 @@ abstract class DB {
 	 * @return bool
 	 */
 	public function beginTransaction() {
-		return $this->pdo->beginTransaction();
+            $this->netteDatabase->beginTransaction();
 	}
 
 	/**
 	 * Commit SQL Transaction
 	 *
 	 * @access public
-	 * @return bool
 	 */
 	public function commit() {
-		if (!$this->pdo->inTransaction())
-			return false;
-		return $this->pdo->commit();
+            $this->netteDatabase->commit();
 	}
 
 	/**
 	 * Commit SQL Transaction
 	 *
 	 * @access public
-	 * @return bool
 	 */
 	public function rollBack() {
-		if (!$this->pdo->inTransaction())
-			return false;
-		return $this->pdo->rollBack();
+            $this->netteDatabase->rollBack();
 	}
 }
 

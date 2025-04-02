@@ -1,7 +1,7 @@
 {
     "require": {
-        "firehed/webauthn": "dev-main",
-        "firehed/cbor": "^0.1.0",
-        "dapphp/radius": "^3.0"
+        "tracy/tracy": "^2.10",
+        "nette/database": "^3.2",
+        "nette/http": "^3.3"
     }
 }

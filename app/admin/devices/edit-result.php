@@ -63,7 +63,7 @@ if ($POST->rack !== "0" && $User->get_module_permissions ("racks")>=User::ACCESS
 		}
 		# validate rack
 		$rack = $Racks->fetch_rack_details($POST->rack);
-		if (!is_numeric($POST->rack) || ($rack > 0 && !is_object($rack))) {
+		if (!is_numeric($POST->rack) || (!is_object($rack) && $rack > 0)) {
 			$Result->show("danger", _('Rack does not exist') . '!', true);
 		}
     }
